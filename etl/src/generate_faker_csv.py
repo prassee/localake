@@ -27,13 +27,9 @@ def upload_to_minio(local_path, minio_key, bucket="stage"):
         config=Config(signature_version='s3v4'),
         region_name='us-east-1'
     )
-    try:
-        s3_client.upload_file(local_path, bucket, minio_key)
-        print(f"Uploaded {local_path} to s3://{bucket}/{minio_key}")
-        os.remove(local_path)
-        print(f"Deleted local file {local_path}")
-    except Exception as e:
-        print(f"Failed to upload {local_path} to MinIO: {e}")
+    s3_client.upload_file(local_path, bucket, minio_key)
+    print(f"Uploaded {local_path} to s3://{bucket}/{minio_key}")
+    os.remove(local_path)
 
 def generate_random_faker_data_per_day(index,start_date, end_date, base_csv_path):
     from datetime import datetime, timedelta
@@ -70,6 +66,101 @@ def generate_random_faker_data_per_day(index,start_date, end_date, base_csv_path
         # Upload to MinIO
         minio_key = f"{index}/{os.path.basename(csv_path)}"
         upload_to_minio(csv_path, minio_key)
+
+_UPI_EVENT_TYPES = [
+    "payment_initiated", "payment_success", "payment_failed",
+    "money_received", "balance_check", "upi_pin_change",
+    "account_linked", "login", "logout", "otp_verified",
+    "autopay_setup", "collect_request_sent", "refund_initiated", "refund_success",
+]
+_UPI_BANKS = ["SBI", "HDFC", "ICICI", "Axis", "Kotak", "PNB", "BOB", "Canara", "Union Bank", "IDFC First"]
+_UPI_HANDLES = ["@okicici", "@okhdfcbank", "@oksbi", "@okaxis", "@ybl", "@paytm"]
+_PAYMENT_EVENTS = frozenset({"payment_initiated", "payment_success", "money_received", "refund_success"})
+
+
+def generate_upi_events(
+    total_records=1_000_000,
+    batch_size=500_000,
+    bucket="stage",
+    prefix="upi_events",
+):
+    """
+    Generate synthetic UPI mobile-app events and stream them to MinIO in batches.
+    IDs are monotonically increasing from 0. Timestamps span 2025-05-01 to 2026-05-25.
+    Requires numpy and pandas.
+    """
+    from datetime import datetime, timezone
+    import math
+    import numpy as np
+    import pandas as pd
+
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    rng = np.random.default_rng(42)
+    events_arr = np.array(_UPI_EVENT_TYPES)
+    banks_arr  = np.array(_UPI_BANKS)
+    statuses   = np.array(["success", "failed", "pending"])
+
+    start_ts = int(datetime(2025, 5, 1).timestamp())
+    end_ts   = int(datetime(2026, 5, 25, 23, 59, 59).timestamp())
+    ts_range = end_ts - start_ts
+
+    # Build user pool once using Faker, then sample with numpy
+    pool_size = 50_000
+    print(f"Building {pool_size:,} synthetic UPI users ...")
+    first_names = [faker.first_name().lower().replace(" ", "") for _ in range(pool_size)]
+    last_names  = [faker.last_name().lower().replace(" ", "") for _ in range(pool_size)]
+    handles     = rng.choice(_UPI_HANDLES, pool_size)
+    upi_ids     = np.array([f"{fn}.{ln}{h}" for fn, ln, h in zip(first_names, last_names, handles)])
+    # Indian mobile numbers: leading digit 6–9, then 9 more digits
+    user_ids    = np.char.add(
+        rng.integers(6, 10, pool_size).astype(str),
+        rng.integers(100_000_000, 999_999_999, pool_size).astype(str),
+    )
+    device_pool = np.array([faker.uuid4() for _ in range(10_000)])
+
+    num_batches = math.ceil(total_records / batch_size)
+    print(f"Generating {total_records:,} events in {num_batches:,} batches → s3://{bucket}/{prefix}/")
+
+    for batch_idx in range(num_batches):
+        id_start = batch_idx * batch_size
+        n        = min(batch_size, total_records - id_start)
+
+        ts_raw   = start_ts + rng.integers(0, ts_range, n)
+        ev_idx   = rng.integers(0, len(events_arr), n)
+        usr_idx  = rng.integers(0, pool_size, n)
+        bnk_idx  = rng.integers(0, len(banks_arr), n)
+        dev_idx  = rng.integers(0, len(device_pool), n)
+        stat_idx = rng.choice(3, n, p=[0.85, 0.12, 0.03])
+        is_pay   = np.isin(events_arr[ev_idx], list(_PAYMENT_EVENTS))
+        amounts  = np.where(
+            is_pay,
+            np.round(rng.exponential(500, n).clip(1, 200_000), 2),
+            np.nan,
+        )
+
+        df = pd.DataFrame({
+            "id":         id_start + np.arange(n, dtype=np.int64),
+            "event_ts":   pd.to_datetime(ts_raw, unit="s").astype("datetime64[us]"),
+            "user_id":    user_ids[usr_idx],
+            "upi_id":     upi_ids[usr_idx],
+            "event_type": events_arr[ev_idx],
+            "bank":       banks_arr[bnk_idx],
+            "amount":     amounts,
+            "status":     statuses[stat_idx],
+            "device_id":  device_pool[dev_idx],
+        })
+
+        pq_path   = f"/tmp/upi_{run_id}_batch_{batch_idx:07d}.parquet"
+        minio_key = f"{prefix}/{run_id}/batch_{batch_idx:07d}.parquet"
+        df.to_parquet(pq_path, index=False, engine="pyarrow", compression="snappy")
+        upload_to_minio(pq_path, minio_key, bucket=bucket)
+
+        done = id_start + n
+        if (batch_idx + 1) % 50 == 0 or done == total_records:
+            print(f"  {done:>15,} / {total_records:,}  ({done / total_records * 100:.1f}%)")
+
+    print(f"Done. {total_records:,} UPI events written to s3://{bucket}/{prefix}/")
+
 
 if __name__ == "__main__":
     # Generate one file per day with a random number of records

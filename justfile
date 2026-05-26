@@ -71,11 +71,17 @@ download-jars:
     done
     @echo "All jars ready in {{LIB_DIR}}/"
 
+generate-upi-events:
+    cd etl && uv run python -c "from src.generate_faker_csv import generate_upi_events; generate_upi_events()"
+
 pyspark-submit:
     docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/create_iceberg_table.py"
 
 pyspark-small-file-submit:
     docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/small_files_table.py"
+
+pyspark-load-upi-submit:
+    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar,/opt/etl/lib/nessie-spark-extensions-3.1_2.12-0.59.0.jar /opt/etl/src/load_upi_events.py"
 
 pyspark-compact-submit:
     docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/compact_partition.py 2026-05-01 2026-05-14"
