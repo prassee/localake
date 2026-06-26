@@ -71,8 +71,11 @@ download-jars:
     done
     @echo "All jars ready in {{LIB_DIR}}/"
 
-generate-upi-events:
-    cd etl && uv run python -c "from src.generate_faker_csv import generate_upi_events; generate_upi_events()"
+# Generate synthetic UPI events into MinIO.
+# Usage: just generate-upi-events [start_date] [end_date] [per_day] [total_records] [batch_size]
+# Volume = total_records if non-empty, else (#days * per_day). batch_size = rows per Parquet file.
+generate-upi-events start='2025-01-01' end='2026-06-25' per_day='15000' total='' batch='100000':
+    cd etl && uv run python -c "from src.generate_faker_csv import generate_upi_events; generate_upi_events(start_date='{{start}}', end_date='{{end}}', per_day=int('{{per_day}}'), total_records=(int('{{total}}') if '{{total}}' else None), batch_size=int('{{batch}}'))"
 
 pyspark-submit:
     docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/create_iceberg_table.py"

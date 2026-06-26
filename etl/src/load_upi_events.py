@@ -1,17 +1,22 @@
 from pyspark.sql import SparkSession
 
-STAGE_BUCKET   = "s3a://stage/upi_events/"
-ICEBERG_TABLE  = "nessie.db.upi_events"
-NAMESPACE      = "nessie.db"
+STAGE_BUCKET = "s3a://stage/upi_events/"
+ICEBERG_TABLE = "nessie.db.upi_events"
+NAMESPACE = "nessie.db"
 
 
 def build_spark():
     return (
-        SparkSession.builder
-        .appName("load-upi-events")
-        .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+        SparkSession.builder.appName("load-upi-events")
+        .config(
+            "spark.sql.extensions",
+            "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
+        )
         .config("spark.sql.catalog.nessie", "org.apache.iceberg.spark.SparkCatalog")
-        .config("spark.sql.catalog.nessie.catalog-impl", "org.apache.iceberg.nessie.NessieCatalog")
+        .config(
+            "spark.sql.catalog.nessie.catalog-impl",
+            "org.apache.iceberg.nessie.NessieCatalog",
+        )
         .config("spark.sql.catalog.nessie.uri", "http://nessie:19120/api/v1")
         .config("spark.sql.catalog.nessie.ref", "main")
         .config("spark.sql.catalog.nessie.warehouse", "s3a://warehouse/")
@@ -62,5 +67,7 @@ if __name__ == "__main__":
     spark = build_spark()
     ensure_table(spark)
     load(spark)
-    spark.sql(f"SELECT event_type, COUNT(*) AS cnt FROM {ICEBERG_TABLE} GROUP BY event_type ORDER BY cnt DESC").show(truncate=False)
+    spark.sql(
+        f"SELECT event_type, COUNT(*) AS cnt FROM {ICEBERG_TABLE} GROUP BY event_type ORDER BY cnt DESC"
+    ).show(truncate=False)
     spark.stop()
