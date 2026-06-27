@@ -86,8 +86,24 @@ pyspark-load-upi-submit:
 pyspark-compact-submit:
     docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/compact_partition.py 2026-05-01 2026-05-14"
 
-pyspark-stream-upsert-submit:
-    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/stream_upsert_heimdall.py"
+# Classpath for running inside spark-master: our class + iceberg/aws jars + Spark's
+# bundled hadoop-client jars (which carry all the S3A transitive deps).
+JAVA_RUN_CP := "/opt/etl/lib/classes:/opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar:/opt/etl/lib/hadoop-aws-3.3.4.jar:/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar:/opt/spark/jars/*"
+
+# Compile the standalone Iceberg equality-delete writer (no Spark) against the lab jars.
+# Output lands in etl/lib/classes, which is mounted into the Spark containers.
+java-eq-build:
+    docker run --rm -v "$PWD":/work -w /work eclipse-temurin:11-jdk \
+        bash -c "mkdir -p etl/lib/classes && javac -cp 'etl/lib/*' -d etl/lib/classes javawriter/HeimdallEqWriter.java && echo COMPILE_OK"
+
+# Run the equality-delete upsert into nessie.db.heimdall. Usage: just java-eq-run [max_files]
+java-eq-run max_files='50':
+    docker exec \
+        -e NESSIE_URI=http://nessie:19120/api/v1 \
+        -e S3_ENDPOINT=http://minio:9000 \
+        -e WAREHOUSE=s3a://warehouse/ \
+        -e MAX_FILES={{max_files}} \
+        spark-master java -cp "{{JAVA_RUN_CP}}" HeimdallEqWriter
 
 
 
