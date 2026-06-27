@@ -1,5 +1,5 @@
-from datetime import timedelta
-from datetime import datetime
+from datetime import datetime, timedelta
+
 from pyspark.sql import SparkSession
 
 spark = (
@@ -26,6 +26,7 @@ spark = (
 
 table_name = "db.heimdall"
 
+
 def compact_partition(spark, partition_date):
     # Run compaction on the specified partition
     print(f"Running compaction on partition: {partition_date}")
@@ -44,23 +45,26 @@ def compact_partition(spark, partition_date):
     )
     """
     spark.sql(sql)
-    print(f"Compaction completed for partition: {partition_date}")    
+    print(f"Compaction completed for partition: {partition_date}")
+
 
 def enable_gc_on_table(spark):
     """
     Enable garbage collection (GC) on the Iceberg table to allow snapshot expiration and orphan file removal.
     """
     print(f"Enabling GC on table {table_name}...")
-    spark.sql(f"""
-        ALTER TABLE nessie.{table_name} SET TBLPROPERTIES ('gc.enabled'='true')
-    """)
+    spark.sql(
+        f""" ALTER TABLE nessie.{table_name} SET TBLPROPERTIES ('gc.enabled'='true')"""
+    )
     print("GC enabled on table.")
+
 
 def expire_old_snapshots(spark, hours=1):
     """
     Expire Iceberg snapshots older than the specified number of hours (default: 24).
     """
     from datetime import datetime, timedelta
+
     expire_ts = datetime.utcnow() - timedelta(minutes=hours)
     expire_str = expire_ts.strftime("%Y-%m-%dT%H:%M:%S")
     print(f"Expiring snapshots older than {expire_str} (UTC)")
@@ -73,12 +77,14 @@ def expire_old_snapshots(spark, hours=1):
     spark.sql(sql)
     print("Expired old snapshots.")
 
+
 def remove_orphan_files(spark, older_than_mins=1):
     """
     Remove orphan files using the Action API, which allows intervals shorter than 24 hours.
     Safe to use when there are no concurrent writes on the table.
     """
     from datetime import datetime, timedelta
+
     expire_ts = datetime.utcnow() - timedelta(minutes=older_than_mins)
     older_than_ms = int(expire_ts.timestamp() * 1000)
     expire_str = expire_ts.strftime("%Y-%m-%dT%H:%M:%S")
@@ -88,13 +94,15 @@ def remove_orphan_files(spark, older_than_mins=1):
         spark._jsparkSession, f"nessie.{table_name}"
     )
     result = (
-        jvm.org.apache.iceberg.spark.actions.SparkActions
-        .get(spark._jsparkSession)
+        jvm.org.apache.iceberg.spark.actions.SparkActions.get(spark._jsparkSession)
         .deleteOrphanFiles(iceberg_table)
         .olderThan(older_than_ms)
         .execute()
     )
-    print(f"Removed orphan files: {result.orphanFileLocations().size()} file(s) deleted.")
+    print(
+        f"Removed orphan files: {result.orphanFileLocations().size()} file(s) deleted."
+    )
+
 
 def pre_check_files(spark, partition_date):
     df = spark.sql(
@@ -105,6 +113,7 @@ def pre_check_files(spark, partition_date):
 
 if __name__ == "__main__":
     import sys
+
     if len(sys.argv) != 3:
         print("Usage: python compact_partition.py <start_date> <end_date>")
         sys.exit(1)
@@ -123,6 +132,6 @@ if __name__ == "__main__":
     # Enable GC before expiring snapshots or removing orphan files
     # enable_gc_on_table(spark)
     # expire_old_snapshots(spark)
-    remove_orphan_files(spark)
+    # remove_orphan_files(spark)
 
     spark.stop()
