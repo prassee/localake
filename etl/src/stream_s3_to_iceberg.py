@@ -85,6 +85,8 @@ def run_stream(
         if batch_df.isEmpty():
             return
 
+        batch_spark = batch_df.sparkSession
+
         latest_window = Window.partitionBy(*merge_keys).orderBy(
             F.col(resolved_ts_col).desc_nulls_last(),
             F.col("_cdc_timestamp").desc_nulls_last(),
@@ -112,12 +114,12 @@ def run_stream(
             (
                 dedup_df.filter(F.col("date_created_day") == F.lit(day))
                 .drop("date_created_day")
-                .createOrReplaceTempView(day_view)
+                .createOrReplaceGlobalTempView(day_view)
             )
 
             merge_sql = f"""
 MERGE INTO {table_name} t
-USING {day_view} s
+USING global_temp.{day_view} s
 ON {merge_on}
 WHEN MATCHED THEN
 UPDATE SET
@@ -127,9 +129,9 @@ INSERT ({insert_columns})
 VALUES ({insert_values})
 """
 
-            spark.sql(merge_sql)
+            batch_spark.sql(merge_sql)
 
-            spark.catalog.dropTempView(day_view)
+            batch_spark.catalog.dropGlobalTempView(day_view)
 
         dedup_df.unpersist()
 
