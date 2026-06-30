@@ -21,31 +21,45 @@ spark = (
     .config("spark.hadoop.fs.s3a.secret.key", "minio123")
     .config("spark.hadoop.fs.s3a.path.style.access", "true")
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+    .config("spark.hadoop.fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+    .config("spark.hadoop.fs.s3n.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+    .config(
+        "spark.hadoop.fs.s3a.aws.credentials.provider",
+        "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+    )
     .getOrCreate()
 )
 
 table_name = "db.heimdall"
+table_name = "heimdall_1_sync_nessie_public.upi_transactions"
 
 
-def compact_partition(spark, partition_date):
-    # Run compaction on the specified partition
-    print(f"Running compaction on partition: {partition_date}")
-    # Use event_ts column for partition predicate (no event_ts_day column)
-    start_dt = datetime.strptime(partition_date, "%Y-%m-%d")
-    end_dt = start_dt + timedelta(days=1)
-    start_ts = start_dt.strftime("%Y-%m-%d 00:00:00")
-    end_ts = end_dt.strftime("%Y-%m-%d 00:00:00")
-    target_file_size_bytes = 5 * 1024 * 1024  # 5 MB
+def compact_partition(spark, start_ts, end_ts):
+    # Run compaction on the specified event_ts window.
+    def _as_datetime(value):
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            return datetime.fromisoformat(value)
+        raise TypeError("start_ts/end_ts must be datetime or ISO timestamp string")
+
+    start_dt = _as_datetime(start_ts)
+    end_dt = _as_datetime(end_ts)
+    start_ts_str = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+    end_ts_plus_one = (end_dt + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+    print(f"Running compaction for range: {start_ts_str} -> {end_ts_plus_one}")
+    target_file_size_bytes = 512 * 1024 * 1024  # 512 MB
     sql = f"""
     CALL nessie.system.rewrite_data_files(        
         table => '{table_name}',
-        where => "event_ts >= TIMESTAMP '{start_ts}' AND event_ts < TIMESTAMP '{end_ts}'",
+        where => "date_created >= TIMESTAMP '{start_ts_str}' AND date_created < TIMESTAMP '{end_ts_plus_one}'",
         strategy => 'binpack',
         options => map('target-file-size-bytes', '{target_file_size_bytes}')
     )
     """
     spark.sql(sql)
-    print(f"Compaction completed for partition: {partition_date}")
+    print(f"Compaction completed for range: {start_ts_str} -> {end_ts_plus_one}")
 
 
 def enable_gc_on_table(spark):
@@ -59,13 +73,13 @@ def enable_gc_on_table(spark):
     print("GC enabled on table.")
 
 
-def expire_old_snapshots(spark, hours=1):
+def expire_old_snapshots(spark, mins=1):
     """
-    Expire Iceberg snapshots older than the specified number of hours (default: 24).
+    Expire Iceberg snapshots older than the specified number of minutes (default: 1).
     """
     from datetime import datetime, timedelta
 
-    expire_ts = datetime.utcnow() - timedelta(minutes=hours)
+    expire_ts = datetime.utcnow() - timedelta(minutes=mins)
     expire_str = expire_ts.strftime("%Y-%m-%dT%H:%M:%S")
     print(f"Expiring snapshots older than {expire_str} (UTC)")
     sql = f"""
@@ -122,16 +136,17 @@ if __name__ == "__main__":
     # iterator over date range and compact each partition
     start_dt = datetime.strptime(partition_s_date, "%Y-%m-%d")
     end_dt = datetime.strptime(partition_e_date, "%Y-%m-%d")
-    delta = end_dt - start_dt
-    for i in range(delta.days + 1):
-        partition_date = (start_dt + timedelta(days=i)).strftime("%Y-%m-%d")
-        print(f"Processing compaction for partition date: {partition_date}")
-        # compact_partition(spark, partition_date)
-        # pre_check_files(spark, partition_date)
+    # compact_partition(spark, start_dt, end_dt)
+    # delta = end_dt - start_dt
+    # for i in range(delta.days + 1):
+    #     partition_date = (start_dt + timedelta(days=i)).strftime("%Y-%m-%d")
+    #     print(f"Processing compaction for partition date: {partition_date}")
+    #     # compact_partition(spark, partition_date)
+    #     # pre_check_files(spark, partition_date)
 
     # Enable GC before expiring snapshots or removing orphan files
-    # enable_gc_on_table(spark)
-    # expire_old_snapshots(spark)
+    enable_gc_on_table(spark)
+    expire_old_snapshots(spark, mins=20)  # Expire snapshots older than 20 minutes
     # remove_orphan_files(spark)
 
     spark.stop()

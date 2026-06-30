@@ -14,7 +14,7 @@ services:
       - localake_net
 
   nessie:
-    image: projectnessie/nessie:latest
+    image: ghcr.io/projectnessie/nessie:0.108.1
     ports:
       - "19120:19120"
     depends_on:
@@ -23,11 +23,13 @@ services:
     environment:
       # Quarkus HTTP port inside the container (Nessie's default is 19120)
       QUARKUS_HTTP_PORT: 19120
+      NESSIE_CATALOG_SERVICE_ENABLED: "true"
 
       # --- Version store: use JDBC with Postgres ---
-      NESSIE_VERSION_STORE_TYPE: jdbc
+      NESSIE_VERSION_STORE_TYPE: JDBC
       NESSIE_VERSION_STORE_PERSIST_JDBC_DATASOURCE: postgresql
-      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/nessie
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/nessie_catalog
+      QUARKUS_DATASOURCE_POSTGRESQL_JDBC_URL: jdbc:postgresql://postgres:5432/nessie_catalog
       QUARKUS_DATASOURCE_USERNAME: nessie
       QUARKUS_DATASOURCE_PASSWORD: nessiepass
       QUARKUS_DATASOURCE_POSTGRESQL_USERNAME: nessie
@@ -37,7 +39,7 @@ services:
       # Container-internal MinIO endpoint (service:container): use the
       # MinIO container port 9000. Compose maps the host ports 9002:9000
       # and 9003:9001 so host clients reach MinIO at host.docker.internal:9002.
-      NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_ENDPOINT: http://minio:9000    
+      NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_ENDPOINT: http://minio:9000
       NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_EXTERNAL_ENDPOINT: http://host.docker.internal:9002
       NESSIE_CATALOG_SERVICE_S3_DEFAULT_OPTIONS_PATH_STYLE_ACCESS: "true"
       # Default region for S3 (used by Iceberg/Nessie). Set to any value for MinIO.
@@ -57,13 +59,33 @@ services:
       - localake_net
 
   postgres:
-    image: postgres:14
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
     environment:
       POSTGRES_USER: nessie
       POSTGRES_PASSWORD: nessiepass
       POSTGRES_DB: nessie
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_worker_processes=10"
+      - "-c"
+      - "shared_preload_libraries=pgoutput"
+      - "-c"
+      - "hba_file=/etc/postgresql/pg_hba.conf"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./postgres/scripts:/usr/local/bin/postgres-scripts
+    ports:
+      - "5432:5432"
     networks:
       - localake_net
 
@@ -103,7 +125,6 @@ services:
     # command: ["/opt/spark/sbin/start-worker.sh", "spark://spark-master:7077"]
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
 
-
   spark-worker-2:
     image: apache/spark:3.5.6
     platform: linux/amd64
@@ -123,7 +144,6 @@ services:
     # command: ["/opt/spark/sbin/start-worker.sh", "spark://spark-master:7077"]
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
 
-
   trino:
     image: trinodb/trino:481
     ports:
@@ -133,10 +153,178 @@ services:
     networks:
       - localake_net
 
+  olake-ui:
+    image: olakego/ui:latest
+    pull_policy: always
+    container_name: olake-ui
+    environment:
+      USERNAME: admin
+      PASSWORD: password
+      OLAKE_SECRET_KEY: ""
+      PERSISTENT_DIR: /tmp/olake-config
+      ENABLE_OPTIMIZATION: "false"
+      MAX_MEMORY: 67108864
+      MAX_UPLOAD_SIZE: 67108864
+      HTTP_READ_HEADER_TIMEOUT: 10s
+      HTTP_READ_TIMEOUT: 600s
+      HTTP_WRITE_TIMEOUT: 600s
+      HTTP_IDLE_TIMEOUT: 600s
+      DB_HOST: postgresql
+      DB_PORT: 5432
+      DB_USER: temporal
+      DB_PASSWORD: temporal
+      DB_SSLMODE: disable
+      OLAKE_DB_NAME: postgres
+      TEMPORAL_DB_NAME: temporal
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /private/tmp/olake-config:/tmp/olake-config
+    networks:
+      - localake_net
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 8000" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  signup-init:
+    image: curlimages/curl:latest
+    container_name: olake-signup-init
+    environment:
+      USERNAME: admin
+      PASSWORD: password
+      EMAIL: admin@example.com
+      OLAKE_APP_URL: http://olake-ui:8000/signup
+    networks:
+      - localake_net
+    depends_on:
+      olake-ui:
+        condition: service_healthy
+    command: >
+      sh -c '
+        echo "signup-init: creating Olake admin user";
+        HTTP_RESPONSE_CODE=$(curl -s -o /dev/stderr -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{\"username\":\"$$USERNAME\",\"password\":\"$$PASSWORD\",\"email\":\"$$EMAIL\"}" "$$OLAKE_APP_URL");
+        if [ "$${HTTP_RESPONSE_CODE}" -ge 200 ] && [ "$${HTTP_RESPONSE_CODE}" -lt 300 ]; then
+          echo "signup-init: user created successfully";
+        elif [ "$${HTTP_RESPONSE_CODE}" -eq 409 ] || [ "$${HTTP_RESPONSE_CODE}" -eq 400 ]; then
+          echo "signup-init: user already exists, continuing";
+        else
+          echo "signup-init: user creation failed with HTTP $${HTTP_RESPONSE_CODE}";
+          exit 1;
+        fi
+      '
+    restart: "no"
+
+  olake-worker:
+    image: olakego/ui-worker:latest
+    pull_policy: always
+    container_name: olake-worker
+    environment:
+      OLAKE_SECRET_KEY: ""
+      PERSISTENT_DIR: /tmp/olake-config
+      OLAKE_CALLBACK_URL: http://olake-ui:8000/internal/worker/callback
+      DB_HOST: postgresql
+      DB_PORT: 5432
+      DB_USER: temporal
+      DB_PASSWORD: temporal
+      DB_SSLMODE: disable
+      OLAKE_DB_NAME: postgres
+      TEMPORAL_DB_NAME: temporal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /private/tmp/olake-config:/tmp/olake-config
+    networks:
+      - localake_net
+    depends_on:
+      temporal:
+        condition: service_started
+      olake-ui:
+        condition: service_healthy
+      signup-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  postgresql:
+    image: postgres:13
+    container_name: olake-postgres
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    volumes:
+      - olake-postgres-data:/var/lib/postgresql/data
+    networks:
+      - localake_net
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U temporal -h localhost -p 5432" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  temporal:
+    image: temporalio/auto-setup:1.22.3
+    container_name: temporal
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: postgresql
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
+    networks:
+      - localake_net
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:2.16.2
+    container_name: temporal-ui
+    profiles:
+      - debug
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "8089:8080"
+    networks:
+      - localake_net
+    restart: unless-stopped
+
+  upi-transactions-writer:
+    build:
+      context: .
+      dockerfile: etl/Dockerfile.upi-mutations
+    environment:
+      UPI_PG_HOST: postgres
+      UPI_PG_PORT: 5432
+      UPI_PG_DB: nessie
+      UPI_PG_USER: nessie
+      UPI_PG_PASSWORD: nessiepass
+    depends_on:
+      - postgres
+    networks:
+      - localake_net
+    restart: unless-stopped
+
 volumes:
   minio-data:
   nessie-data:
   postgres-data:
+  olake-data:
+  olake-postgres-data:
 
 networks:
   localake_net:

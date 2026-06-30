@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import lit, current_timestamp
+
 
 def ensure_namespace(spark, namespace="nessie.db"):
     """
@@ -7,14 +7,37 @@ def ensure_namespace(spark, namespace="nessie.db"):
     """
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {namespace}")
 
-    
+
+def list_namespaces(spark, catalog="nessie"):
+    """
+    List all namespaces available in the configured Nessie catalog.
+    """
+    namespaces_df = spark.sql(f"SHOW NAMESPACES IN {catalog}")
+    return [row[0] for row in namespaces_df.collect()]
+
+
+def list_tables_in_namespace(
+    spark, catalog="nessie", namespace="heimdall_1_sync_nessie_public"
+):
+    """
+    List all tables in a specific namespace within the configured Nessie catalog.
+    """
+    tables_df = spark.sql(f"SHOW TABLES IN {catalog}.{namespace}")
+    return [row[1] for row in tables_df.collect()]
+
+
 def main():
     spark = (
-        SparkSession.builder
-        .appName("create-iceberg-with-nessie")
-        .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+        SparkSession.builder.appName("create-iceberg-with-nessie")
+        .config(
+            "spark.sql.extensions",
+            "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
+        )
         .config("spark.sql.catalog.nessie", "org.apache.iceberg.spark.SparkCatalog")
-        .config("spark.sql.catalog.nessie.catalog-impl", "org.apache.iceberg.nessie.NessieCatalog")
+        .config(
+            "spark.sql.catalog.nessie.catalog-impl",
+            "org.apache.iceberg.nessie.NessieCatalog",
+        )
         .config("spark.sql.catalog.nessie.uri", "http://nessie:19120/api/v1")
         .config("spark.sql.catalog.nessie.ref", "main")
         .config("spark.sql.catalog.nessie.warehouse", "s3a://warehouse/")
@@ -27,35 +50,16 @@ def main():
     )
 
     # Ensure the namespace exists
-    ensure_namespace(spark, "nessie.db")
+    # ensure_namespace(spark, "nessie.db")
 
-    # Create the table if it doesn't exist
-    spark.sql(
-        """
-        CREATE TABLE IF NOT EXISTS nessie.db.small_file_test (
-            id BIGINT,
-            event_ts TIMESTAMP,
-            payload STRING
-        )
-        USING iceberg
-        PARTITIONED BY (days(event_ts))
-        """
-    )
+    namespaces = list_namespaces(spark, "nessie")
+    print("Namespaces in Nessie:", namespaces)
 
-    # Append a few sample rows
-    df = (
-        spark.range(5)
-        .withColumn("event_ts", current_timestamp())
-        .withColumn("payload", lit("sample_payload"))
-    )
-
-    df.writeTo("nessie.db.small_file_test").append()
-
-    print("Wrote sample rows; preview:")
-    spark.sql("SELECT * FROM nessie.db.small_file_test LIMIT 10").show(truncate=False)
+    tables = list_tables_in_namespace(spark, "nessie", "heimdall_1_sync_nessie_public")
+    print("Tables in namespace 'heimdall_1_sync_nessie_public':", tables)
 
     spark.stop()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
