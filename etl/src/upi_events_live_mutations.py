@@ -487,7 +487,7 @@ def update_hotspot_same_day_intervals(conn, target_refs: list[str]) -> tuple[int
     return first_pass, second_pass
 
 
-def run_live_mutations(loop_seconds: int = 5) -> None:
+def run_live_mutations(loop_seconds: int = 45) -> None:
     conn = _connect()
     create_upi_transactions_table(conn)
 
@@ -558,4 +558,4 @@ if __name__ == "__main__":
         level=os.getenv("UPI_LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",
     )
-    run_live_mutations(loop_seconds=5)
+    run_live_mutations(loop_seconds=45)

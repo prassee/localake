@@ -232,6 +232,8 @@ services:
       OLAKE_SECRET_KEY: ""
       PERSISTENT_DIR: /tmp/olake-config
       OLAKE_CALLBACK_URL: http://olake-ui:8000/internal/worker/callback
+      JAVA_TOOL_OPTIONS: "-Xms1g -Xmx3g -XX:+UseG1GC"
+      _JAVA_OPTIONS: "-Xms1g -Xmx3g -XX:+UseG1GC"
       DB_HOST: postgresql
       DB_PORT: 5432
       DB_USER: temporal
