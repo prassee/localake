@@ -558,4 +558,4 @@ if __name__ == "__main__":
         level=os.getenv("UPI_LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",
     )
-    run_live_mutations(loop_seconds=5)
+    run_live_mutations(loop_seconds=45)

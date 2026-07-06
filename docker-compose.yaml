@@ -28,8 +28,8 @@ services:
       # --- Version store: use JDBC with Postgres ---
       NESSIE_VERSION_STORE_TYPE: JDBC
       NESSIE_VERSION_STORE_PERSIST_JDBC_DATASOURCE: postgresql
-      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/nessie_catalog
-      QUARKUS_DATASOURCE_POSTGRESQL_JDBC_URL: jdbc:postgresql://postgres:5432/nessie_catalog
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/nessie
+      QUARKUS_DATASOURCE_POSTGRESQL_JDBC_URL: jdbc:postgresql://postgres:5432/nessie
       QUARKUS_DATASOURCE_USERNAME: nessie
       QUARKUS_DATASOURCE_PASSWORD: nessiepass
       QUARKUS_DATASOURCE_POSTGRESQL_USERNAME: nessie
@@ -98,6 +98,7 @@ services:
     ports:
       - "7077:7077" # Spark master RPC
       - "8080:8080" # Spark master web UI
+      - "4040:4040" # Spark application UI (driver)
     volumes:
       - ./etl/src:/opt/etl/src
       - ./etl/lib:/opt/etl/lib
@@ -111,7 +112,7 @@ services:
     platform: linux/amd64
     environment:
       - SPARK_WORKER_CORES=2
-      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_MEMORY=4g
       - SPARK_MASTER=spark://spark-master:7077
     depends_on:
       - spark-master
@@ -130,7 +131,7 @@ services:
     platform: linux/amd64
     environment:
       - SPARK_WORKER_CORES=2
-      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_MEMORY=4g
       - SPARK_MASTER=spark://spark-master:7077
     depends_on:
       - spark-master
@@ -239,6 +240,7 @@ services:
       DB_SSLMODE: disable
       OLAKE_DB_NAME: postgres
       TEMPORAL_DB_NAME: temporal
+      JAVA_TOOL_OPTIONS: "-Xms512m -Xmx3g"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /private/tmp/olake-config:/tmp/olake-config
@@ -299,6 +301,27 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
     ports:
       - "8089:8080"
+    networks:
+      - localake_net
+    restart: unless-stopped
+
+  olake-fusion:
+    image: olakego/fusion:latest
+    pull_policy: always
+    container_name: olake-fusion
+    command: ["ams"]
+    ports:
+      - "1260:1260" # Thrift table service
+      - "1261:1261" # Thrift optimizing service
+      - "1630:1630" # Dashboard UI
+    volumes:
+      - ./fusion/conf:/usr/local/amoro/conf
+    environment:
+      LOG_LEVEL: info
+    depends_on:
+      - postgres
+      - nessie
+      - minio
     networks:
       - localake_net
     restart: unless-stopped

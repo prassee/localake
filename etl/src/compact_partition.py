@@ -32,6 +32,8 @@ spark = (
 
 table_name = "db.heimdall"
 table_name = "heimdall_1_sync_nessie_public.upi_transactions"
+table_name = "localake.upi_transactions"
+table_name = "localake_unnest_1m_nessie_public.upi_transactions"
 
 
 def compact_partition(spark, start_ts, end_ts):
@@ -53,9 +55,11 @@ def compact_partition(spark, start_ts, end_ts):
     sql = f"""
     CALL nessie.system.rewrite_data_files(        
         table => '{table_name}',
-        where => "date_created >= TIMESTAMP '{start_ts_str}' AND date_created < TIMESTAMP '{end_ts_plus_one}'",
+        where => "date_modified >= TIMESTAMP '{start_ts_str}' AND date_modified < TIMESTAMP '{end_ts_plus_one}'",
         strategy => 'binpack',
-        options => map('target-file-size-bytes', '{target_file_size_bytes}')
+        options => map('target-file-size-bytes', '{target_file_size_bytes}' , 
+        'partial-progress.enabled', 'false', 
+        'delete-file-threshold',    '1')
     )
     """
     spark.sql(sql)
@@ -146,7 +150,7 @@ if __name__ == "__main__":
 
     # Enable GC before expiring snapshots or removing orphan files
     enable_gc_on_table(spark)
-    expire_old_snapshots(spark, mins=20)  # Expire snapshots older than 20 minutes
-    # remove_orphan_files(spark)
+    # expire_old_snapshots(spark, mins=2)  # Expire snapshots older than 2 minutes
+    remove_orphan_files(spark)
 
     spark.stop()

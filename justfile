@@ -69,11 +69,11 @@ LIB_DIR := "etl/lib"
 download-jars:
     @mkdir -p {{LIB_DIR}}
     @for jar_url in \
-        "{{MAVEN}}/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/1.10.1/iceberg-spark-runtime-3.5_2.12-1.10.1.jar" \
+        "{{MAVEN}}/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/1.11.0/iceberg-spark-runtime-3.5_2.12-1.10.2.jar" \
         "{{MAVEN}}/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar" \
         "{{MAVEN}}/org/apache/hadoop/hadoop-common/3.3.4/hadoop-common-3.3.4.jar" \
         "{{MAVEN}}/com/amazonaws/aws-java-sdk-bundle/1.12.603/aws-java-sdk-bundle-1.12.603.jar" \
-        "{{MAVEN}}/org/projectnessie/nessie-integrations/nessie-spark-extensions-3.1_2.12/0.59.0/nessie-spark-extensions-3.1_2.12-0.59.0.jar" \
+        "{{MAVEN}}/org/projectnessie/nessie-integrations/nessie-spark-extensions-3.5_2.12/0.108.1/nessie-spark-extensions-3.5_2.12-0.108.1.jar" \
     ; do \
         filename=$(basename "$jar_url"); \
         dest="{{LIB_DIR}}/$filename"; \
@@ -90,26 +90,26 @@ generate-upi-events:
     cd etl && uv run python -c "from src.generate_faker_csv import generate_upi_events; generate_upi_events()"
 
 pyspark-submit:
-    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/create_iceberg_table.py"
+    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.2.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/create_iceberg_table.py"
 
 pyspark-small-file-submit:
-    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/small_files_table.py"
+    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.2.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/small_files_table.py"
 
 pyspark-load-upi-submit:
-    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar,/opt/etl/lib/nessie-spark-extensions-3.1_2.12-0.59.0.jar /opt/etl/src/load_upi_events.py"
+    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.2.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar,/opt/etl/lib/nessie-spark-extensions-3.5_2.12-0.108.1.jar /opt/etl/src/load_upi_events.py"
 
 pyspark-compact-submit:
-    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/compact_partition.py 2025-06-01 2026-06-28"
+    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --executor-memory 2g --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.2.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar /opt/etl/src/compact_partition.py 2025-05-01 2026-05-01"
 
 pyspark-stream-upi-submit trigger_seconds='61' max_files='500' merge_keys='id' latest_ts_col='_olake_timestamp':
-    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar,/opt/etl/lib/nessie-spark-extensions-3.1_2.12-0.59.0.jar /opt/etl/src/stream_s3_to_iceberg.py --source-path s3://stage/heimdall/heimdall/upi_transactions/2026-06-30/03 --table nessie.heimdall_1_sync_nessie_public.upi_transactions_v2 --checkpoint s3a://stage/checkpoints/stream_upi_transactions --trigger-seconds {{trigger_seconds}} --max-files-per-trigger {{max_files}} --merge-keys {{merge_keys}} --latest-timestamp-col {{latest_ts_col}}"
+    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --executor-memory 2g --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.2.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar,/opt/etl/lib/nessie-spark-extensions-3.5_2.12-0.108.1.jar /opt/etl/src/stream_s3_to_iceberg.py --source-path s3://stage/heimdall/heimdall/upi_transactions/2026-06-30/03 --table nessie.heimdall_1_sync_nessie_public.upi_transactions_v2 --checkpoint s3a://stage/checkpoints/stream_upi_transactions --trigger-seconds {{trigger_seconds}} --max-files-per-trigger {{max_files}} --merge-keys {{merge_keys}} --latest-timestamp-col {{latest_ts_col}}"
 
 pyspark-backfill-upi-submit merge_keys='id' latest_ts_col='_olake_timestamp':
-    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar,/opt/etl/lib/nessie-spark-extensions-3.1_2.12-0.59.0.jar /opt/etl/src/backfill_upi_to_iceberg.py --source-path s3://stage/heimdall/heimdall/upi_transactions --table nessie.heimdall_1_sync_nessie_public.upi_transactions_v2 --merge-keys {{merge_keys}} --latest-timestamp-col {{latest_ts_col}}"
+    docker exec -it spark-master /bin/bash -c "/opt/spark/bin/spark-submit --master spark://spark-master:7077 --executor-memory 2g --jars /opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.2.jar,/opt/etl/lib/hadoop-aws-3.3.4.jar,/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar,/opt/etl/lib/hadoop-common-3.3.4.jar,/opt/etl/lib/nessie-spark-extensions-3.5_2.12-0.108.1.jar /opt/etl/src/backfill_upi_to_iceberg.py --source-path s3://stage/heimdall/heimdall/upi_transactions --table nessie.heimdall_1_sync_nessie_public.upi_transactions_v2 --merge-keys {{merge_keys}} --latest-timestamp-col {{latest_ts_col}}"
 
 # Classpath for running inside spark-master: our class + iceberg/aws jars + Spark's
 # bundled hadoop-client jars (which carry all the S3A transitive deps).
-JAVA_RUN_CP := "/opt/etl/lib/classes:/opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.1.jar:/opt/etl/lib/hadoop-aws-3.3.4.jar:/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar:/opt/spark/jars/*"
+JAVA_RUN_CP := "/opt/etl/lib/classes:/opt/etl/lib/iceberg-spark-runtime-3.5_2.12-1.10.2.jar:/opt/etl/lib/hadoop-aws-3.3.4.jar:/opt/etl/lib/aws-java-sdk-bundle-1.12.603.jar:/opt/spark/jars/*"
 MINIO_MC := "docker run --rm --network localake_localake_net --entrypoint /bin/sh minio/mc"
 
 # Compile the standalone Iceberg equality-delete writer (no Spark) against the lab jars.
