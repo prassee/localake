@@ -305,27 +305,6 @@ services:
       - localake_net
     restart: unless-stopped
 
-  olake-fusion:
-    image: olakego/fusion:latest
-    pull_policy: always
-    container_name: olake-fusion
-    command: ["ams"]
-    ports:
-      - "1260:1260" # Thrift table service
-      - "1261:1261" # Thrift optimizing service
-      - "1630:1630" # Dashboard UI
-    volumes:
-      - ./fusion/conf:/usr/local/amoro/conf
-    environment:
-      LOG_LEVEL: info
-    depends_on:
-      - postgres
-      - nessie
-      - minio
-    networks:
-      - localake_net
-    restart: unless-stopped
-
   upi-transactions-writer:
     build:
       context: .
